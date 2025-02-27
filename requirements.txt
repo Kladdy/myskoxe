@@ -1,0 +1,7 @@
+numpy
+wheel
+jax==0.4.34
+jax-metal
+ipykernel
+jupyter
+seaborn
