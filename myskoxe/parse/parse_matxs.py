@@ -108,7 +108,7 @@ class Particle:
 
 
 @dataclass
-class FileStructure:
+class MATXSFile:
     file_identification: Optional[FileIdentification] = None
     file_control: Optional[FileControl] = None
     set_hollerith_identification: Optional[SetHollerithIdentification] = None
@@ -118,7 +118,7 @@ class FileStructure:
 
 
 @dataclass
-class MATXSFile:
+class CardContainer:
     lines: list[str]
     _cards: list[BaseCard] = field(default_factory=list)
 
@@ -167,11 +167,14 @@ class MATXSFile:
                 )
             )
 
+    def parse(self) -> MATXSFile:
+        pass
+
 
 if __name__ == "__main__":
     gendf_path = Path(f"/Users/sigge/projects/physics/myskoxe/myskoxe/frendy/tests/U235_MATXS_92235.09c.mg")
 
     lines = gendf_path.read_text().splitlines()
 
-    matxs_file = MATXSFile(lines)
+    matxs_file = CardContainer(lines)
     print(len(matxs_file._cards))
