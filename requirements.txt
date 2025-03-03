@@ -1,7 +1,8 @@
 numpy
 wheel
-jax==0.4.34
-jax-metal
+tensorflow
+tensorflow-metal
 ipykernel
-jupyter
 seaborn
+fortranformat
+jinja2

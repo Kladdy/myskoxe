@@ -1,4 +1,7 @@
 #!/bin/zsh
+
+set -euo pipefail
+
 python3 -m venv myskoxe-env
 . myskoxe-env/bin/activate
 

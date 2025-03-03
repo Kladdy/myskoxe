@@ -1,0 +1,11 @@
+mg_neutron_mode //Process mode
+ace_file_name ( /nuclear_data/ace/jeff-3.3/ace_900/92-U-235g-900.ace ) //ACE file name
+mg_file_name U235 //Output file name
+mg_edit_mode ( GENDF MATXS MGFlux)
+//GENDF: GENDF format consistent with NJOY2016
+//MATXS: MATXS format consistent with NJOY2016
+mg_structure ( ign18 ) 
+mg_structure_gam ( igg10 ) 
+mg_weighting_spectrum ( iwt04 ) 
+temp 900.0 //[K]
+legendre_order 3

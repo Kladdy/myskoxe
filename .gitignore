@@ -175,5 +175,9 @@ cython_debug/
 
 
 
-# Custom
+# --- Custom ---
 *-env
+
+# Frendy
+frendy_install
+frendy/install

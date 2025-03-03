@@ -1,0 +1,14 @@
+# podman-compose up -d
+# podman-compose up --build -d
+# podman-compose down && podman-compose up -d
+# podman-compose down && podman-compose up --build -d
+version: '3'
+services:
+  ubuntu:
+    build: .
+    container_name: frendy-ubuntu
+    stdin_open: true
+    tty: true
+    volumes:
+      - /Users/sigge/projects/physics/myskoxe:/myskoxe:Z
+      - /Users/sigge/nuclear_data:/nuclear_data:Z
