@@ -102,6 +102,7 @@ class FFDataRecordType(Enum):
     SCALAR = auto()
     ARRAY = auto()
     EMPTY = auto()
+    DECIMAL_SHIFT = auto()
 
 
 @dataclass
@@ -116,6 +117,8 @@ class FFDataRecord:
             assert self.kind == "X", f"Expected kind 'X' for empty record, got {self.kind}"
         if self.type == FFDataRecordType.SCALAR:
             assert self.count == 1, f"Expected count 1 for scalar record, got {self.count}"
+        if self.type == FFDataRecordType.DECIMAL_SHIFT:
+            assert self.kind == "P", f"Expected kind 'P' for decimal shift record, got {self.kind}"
 
         # Check that kind does not start with a number
         assert not re.match("\d", self.kind), f"Kind should not start with a number, got {self.kind}"
@@ -126,15 +129,20 @@ class FFDataRecord:
 
         # Read the data
         format_str = ",".join([f"{record.count}{record.kind}" for record in records])
+        print(format_str)
         parsed_card = ff.FortranRecordReader(format_str).read(data)
 
         assert len(parsed_card) == sum(
-            [record.count for record in records if record.type != FFDataRecordType.EMPTY]
+            [
+                record.count
+                for record in records
+                if record.type not in [FFDataRecordType.EMPTY, FFDataRecordType.DECIMAL_SHIFT]
+            ]
         ), f"Expected {sum([record.count for record in records])} values, got {len(parsed_card)}"
 
         counter = 0
         for record in records:
-            if record.type == FFDataRecordType.EMPTY:
+            if record.type in [FFDataRecordType.EMPTY, FFDataRecordType.DECIMAL_SHIFT]:
                 continue
 
             assert counter + record.count <= len(
@@ -273,8 +281,33 @@ class FileData:
 
 
 @dataclass
-class GroupStructures:
-    pass
+class GroupStructure:
+    data: dict
+
+    _LABEL = "4d"
+    _LEVEL = 4
+
+    @classmethod
+    def consume_container(cls, card_container: CardContainer, matxs_file: "MATXSFile"):
+        card = card_container._cards.pop(0)
+
+        assert card.label == cls._LABEL, f"Expected label {cls._LABEL}, got {card.label}"
+        assert card.level == cls._LEVEL, f"Expected level {cls._LEVEL}, got {card.level}"
+
+        j = len(matxs_file.particles)
+        ngr = matxs_file.file_data.data["ngrp"][j]
+
+        records = [
+            FFDataRecord(key="title", count=1, kind="A4", type=FFDataRecordType.SCALAR),
+            FFDataRecord(key=None, count=8, kind="X", type=FFDataRecordType.EMPTY),
+            FFDataRecord(key=None, count=2, kind="P", type=FFDataRecordType.DECIMAL_SHIFT),
+            FFDataRecord(key="gpb", count=ngr, kind="E12.5", type=FFDataRecordType.ARRAY),
+            FFDataRecord(key="emin", count=1, kind="E12.5", type=FFDataRecordType.SCALAR),
+        ]
+
+        data = FFDataRecord.read_records(card.data, records)
+
+        return cls(data)
 
 
 @dataclass
@@ -313,13 +346,18 @@ class SubMaterial:
 
 @dataclass
 class Material:
-    material_control: Optional[object] = None  # Placeholder för framtida attribut
+    material_control: Optional[object] = None
     submaterials: list[SubMaterial] = field(default_factory=list)
 
 
 @dataclass
 class Particle:
-    group_structures: Optional[GroupStructures] = None
+    group_structure: Optional[GroupStructure] = None
+
+    @classmethod
+    def consume_container(cls, card_container: CardContainer, matxs_file: "MATXSFile"):
+        particle = cls(group_structure=GroupStructure.consume_container(card_container, matxs_file))
+        return particle
 
 
 @dataclass
@@ -343,6 +381,8 @@ class MATXSFile:
                 self.set_hollerith_identification = SetHollerithIdentification.consume_container(card_container)
             elif next_card_label == "3d":
                 self.file_data = FileData.consume_container(card_container, self)
+            elif next_card_label == "4d":
+                self.particles.append(Particle.consume_container(card_container, self))
             elif next_card_label is None:
                 print(f"End of file reached")
                 break
