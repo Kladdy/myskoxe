@@ -367,27 +367,6 @@ class GroupStructure:
         return cls(data)
 
 
-# !cr material control
-# !c
-# !cl hmat,amass,(temp(i),sigz(i),itype(i),n1d(i),n2d(i),
-# !cl 1locs(i),i=1,nsubm)
-# !c
-# !cw mult+1+6*nsubm
-# !c
-# !cb format(4h 5d ,a8,1p,2e12.5/(2e12.5,5i6))
-# !c
-# !cd hmat hollerith material identifier
-# !cd amass atomic weight ratio
-# !cd temp ambient temperature or other parameters for
-# !cd submaterial i
-# !cd sigz dilution factor or other parameters for
-# !cd submaterial i
-# !cd itype data type for submaterial i
-# !cd n1d number of vectors for submaterial i
-# !cd n2d number of matrix blocks for submaterial i
-# !cd locs location of submaterial i
-
-
 @dataclass
 class MaterialControl:
     data: dict
