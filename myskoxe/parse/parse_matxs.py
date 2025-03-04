@@ -56,8 +56,8 @@ class CardContainer:
             idx_list_too_wide_lines
         ), f"Line length exceeds {LINE_LENGTH} characters for {len(idx_list_too_wide_lines)} lines: {idx_list_too_wide_lines}"
 
-        # Pad lines that are too short
-        self.lines = [line.ljust(LINE_LENGTH) for line in self.lines]
+        # # Pad lines that are too short
+        # self.lines = [line.ljust(LINE_LENGTH) for line in self.lines]
 
         self._populate_cards()
 
@@ -91,6 +91,11 @@ class CardContainer:
                     stop_idx=stop_idx,
                 )
             )
+
+    def get_next_card_label(self):
+        if len(self._cards):
+            return self._cards[0].label
+        return None
 
 
 class FFDataRecordType(Enum):
@@ -157,7 +162,9 @@ class FileIdentification:
     _LEVEL = 0
 
     @classmethod
-    def consume_card(cls, card: BaseCard):
+    def consume_container(cls, card_container: CardContainer):
+        card = card_container._cards.pop(0)
+
         assert card.label == cls._LABEL, f"Expected label {cls._LABEL}, got {card.label}"
         assert card.level == cls._LEVEL, f"Expected level {cls._LEVEL}, got {card.level}"
 
@@ -184,7 +191,9 @@ class FileControl:
     _LEVEL = 1
 
     @classmethod
-    def consume_card(cls, card: BaseCard):
+    def consume_container(cls, card_container: CardContainer):
+        card = card_container._cards.pop(0)
+
         assert card.label == cls._LABEL, f"Expected label {cls._LABEL}, got {card.label}"
         assert card.level == cls._LEVEL, f"Expected level {cls._LEVEL}, got {card.level}"
 
@@ -203,18 +212,6 @@ class FileControl:
         return cls(data)
 
 
-# !cr set hollerith identification
-# !c
-# !cl (hsetid(i),i=1,nholl)
-# !c
-# !cw nholl*mult
-# !c
-# !cb format(4h 2d /(9a8))
-# !c
-# !cd hsetid hollerith identification of set (a8)
-# !cd (to be edited out 72 characters per line)
-
-
 @dataclass
 class SetHollerithIdentification:
     data: dict
@@ -223,14 +220,15 @@ class SetHollerithIdentification:
     _LEVEL = 2
 
     @classmethod
-    def consume_card(cls, card: BaseCard):
+    def consume_container(cls, card_container: CardContainer):
+        card = card_container._cards.pop(0)
+
         assert card.label == cls._LABEL, f"Expected label {cls._LABEL}, got {card.label}"
         assert card.level == cls._LEVEL, f"Expected level {cls._LEVEL}, got {card.level}"
 
         records = [
             FFDataRecord(key="title", count=1, kind="A4", type=FFDataRecordType.SCALAR),
-            FFDataRecord(key=None, count=68, kind="X", type=FFDataRecordType.EMPTY),
-            FFDataRecord(key="hsetid", count=7, kind="A8", type=FFDataRecordType.ARRAY),
+            FFDataRecord(key="hsetid", count=9, kind="A8", type=FFDataRecordType.ARRAY),
         ]
 
         data = FFDataRecord.read_records(card.data, records)
@@ -240,7 +238,38 @@ class SetHollerithIdentification:
 
 @dataclass
 class FileData:
-    pass
+    data: dict
+
+    _LABEL = "3d"
+    _LEVEL = 3
+
+    @classmethod
+    def consume_container(cls, card_container: CardContainer, matxs_file: "MATXSFile"):
+        card = card_container._cards.pop(0)
+
+        assert card.label == cls._LABEL, f"Expected label {cls._LABEL}, got {card.label}"
+        assert card.level == cls._LEVEL, f"Expected level {cls._LEVEL}, got {card.level}"
+
+        npart = matxs_file.file_control.data["npart"]
+        nmat = matxs_file.file_control.data["nmat"]
+        ntype = matxs_file.file_control.data["ntype"]
+
+        records = [
+            FFDataRecord(key="title", count=1, kind="A4", type=FFDataRecordType.SCALAR),
+            FFDataRecord(key=None, count=4, kind="X", type=FFDataRecordType.EMPTY),
+            FFDataRecord(key="hprt", count=npart, kind="A8", type=FFDataRecordType.ARRAY),
+            FFDataRecord(key="htype", count=ntype, kind="A8", type=FFDataRecordType.ARRAY),
+            FFDataRecord(key="hmatn", count=nmat, kind="A8", type=FFDataRecordType.ARRAY),
+            FFDataRecord(key="ngrp", count=npart, kind="I6", type=FFDataRecordType.ARRAY),
+            FFDataRecord(key="jinp", count=ntype, kind="I6", type=FFDataRecordType.ARRAY),
+            FFDataRecord(key="joutp", count=ntype, kind="I6", type=FFDataRecordType.ARRAY),
+            FFDataRecord(key="nsubm", count=nmat, kind="I6", type=FFDataRecordType.ARRAY),
+            FFDataRecord(key="locm", count=nmat, kind="I6", type=FFDataRecordType.ARRAY),
+        ]
+
+        data = FFDataRecord.read_records(card.data, records)
+
+        return cls(data)
 
 
 @dataclass
@@ -304,16 +333,19 @@ class MATXSFile:
 
     def consume_container(self, card_container: CardContainer):
         while card_container._cards:
-            card = card_container._cards.pop(0)
+            next_card_label = card_container.get_next_card_label()
 
-            if card.label == "0v":
-                self.file_identification = FileIdentification.consume_card(card)
-            elif card.label == "1d":
-                self.file_control = FileControl.consume_card(card)
-            elif card.label == "2d":
-                self.set_hollerith_identification = SetHollerithIdentification.consume_card(card)
-            # elif card.label == "3d":
-            #     self.file_data = FileData.consume_card(card)
+            if next_card_label == "0v":
+                self.file_identification = FileIdentification.consume_container(card_container)
+            elif next_card_label == "1d":
+                self.file_control = FileControl.consume_container(card_container)
+            elif next_card_label == "2d":
+                self.set_hollerith_identification = SetHollerithIdentification.consume_container(card_container)
+            elif next_card_label == "3d":
+                self.file_data = FileData.consume_container(card_container, self)
+            elif next_card_label is None:
+                print(f"End of file reached")
+                break
             else:
                 break
                 raise ValueError(f"The card {card} should have been consumed further down the line")
