@@ -106,6 +106,7 @@ class CardContainer:
 class FFDataRecordType(Enum):
     SCALAR = auto()
     ARRAY = auto()
+    TABLE = auto()
     EMPTY = auto()
     DECIMAL_SHIFT = auto()
 
@@ -116,6 +117,7 @@ class FFDataRecord:
     count: int
     kind: str
     type: FFDataRecordType
+    table_rows: Optional[int] = None
 
     def __post_init__(self):
         if self.type == FFDataRecordType.EMPTY:
@@ -125,12 +127,56 @@ class FFDataRecord:
         if self.type == FFDataRecordType.DECIMAL_SHIFT:
             assert self.kind == "P", f"Expected kind 'P' for decimal shift record, got {self.kind}"
 
+        if self.type == FFDataRecordType.TABLE:
+            assert self.table_rows is not None, f"Expected table_rows to be set for table record, got {self.table_rows}"
+            assert self.count == 1, f"Expected count 1 for table record, got {self.count}"
+        else:
+            assert (
+                self.table_rows is None
+            ), f"Expected table_rows to be None for non-table record, got {self.table_rows}"
+
         # Check that kind does not start with a number
         assert not re.match("\d", self.kind), f"Kind should not start with a number, got {self.kind}"
 
     @classmethod
     def read_records(cls, data: str, records: list["FFDataRecord"]):
         results = {}
+
+        table_record_indicies = [
+            record_idx for record_idx, record in enumerate(records) if record.type is FFDataRecordType.TABLE
+        ]
+
+        # Unless there is only one table row, expand the table records to the correct number of records
+        if len(table_record_indicies) > 1:
+            first_table_record = records[table_record_indicies[0]]
+
+            # If there are any TABLE records, assert that they are all clumped together,
+            # one after the other in the list of records
+            for i in range(len(table_record_indicies) - 1):
+                assert (
+                    table_record_indicies[i] + 1 == table_record_indicies[i + 1]
+                ), f"TABLE records should be clumped together, but were placed at {table_record_indicies}"
+
+            # Check that all table records have the same table_rows size
+            assert all(
+                [
+                    record.table_rows == first_table_record.table_rows
+                    for record in records
+                    if record.type is FFDataRecordType.TABLE
+                ]
+            )
+
+            new_records: list[FFDataRecord] = []
+            for record_idx, record in enumerate(records):
+                if record_idx == table_record_indicies[0]:
+                    repeated_table_indices = table_record_indicies * first_table_record.table_rows
+                    for repeated_table_idx in repeated_table_indices:
+                        new_records.append(records[repeated_table_idx])
+                elif record_idx in table_record_indicies:
+                    continue
+                else:
+                    new_records.append(record)
+            records = new_records
 
         # Read the data
         format_str = ",".join([f"{record.count}{record.kind}" for record in records])
@@ -156,8 +202,14 @@ class FFDataRecord:
 
             if record.type == FFDataRecordType.SCALAR:
                 results[record.key] = parsed_card[counter]
-            else:
+            elif record.type == FFDataRecordType.ARRAY:
                 results[record.key] = parsed_card[counter : counter + record.count]
+            elif record.type == FFDataRecordType.TABLE:
+                if record.key not in results:
+                    results[record.key] = []
+                results[record.key].append(parsed_card[counter])
+            else:
+                raise ValueError(f"Unsupported record type {record.type}")
             counter += record.count
 
         assert counter == len(
@@ -358,9 +410,13 @@ class MaterialControl:
             FFDataRecord(key="hmat", count=1, kind="A8", type=FFDataRecordType.SCALAR),
             FFDataRecord(key=None, count=1, kind="P", type=FFDataRecordType.DECIMAL_SHIFT),
             FFDataRecord(key="amass", count=1, kind="E12.5", type=FFDataRecordType.SCALAR),
+            FFDataRecord(key="temp", count=1, kind="E12.5", type=FFDataRecordType.TABLE, table_rows=nsubm),
+            FFDataRecord(key="sigz", count=1, kind="E12.5", type=FFDataRecordType.TABLE, table_rows=nsubm),
+            FFDataRecord(key="itype", count=1, kind="I6", type=FFDataRecordType.TABLE, table_rows=nsubm),
+            FFDataRecord(key="n1d", count=1, kind="I6", type=FFDataRecordType.TABLE, table_rows=nsubm),
+            FFDataRecord(key="n2d", count=1, kind="I6", type=FFDataRecordType.TABLE, table_rows=nsubm),
+            FFDataRecord(key="locs", count=1, kind="I6", type=FFDataRecordType.TABLE, table_rows=nsubm),
         ]
-
-        # TODO: Add the rest of the records, read as a table
 
         data = FFDataRecord.read_records(card.data, records)
 
