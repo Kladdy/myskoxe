@@ -164,7 +164,7 @@ class FFDataRecord:
                     for record in records
                     if record.type is FFDataRecordType.TABLE
                 ]
-            )
+            ), f"TABLE records should have the same table_rows size, but got {[record.table_rows for record in records if record.type is FFDataRecordType.TABLE]}"
 
             new_records: list[FFDataRecord] = []
             for record_idx, record in enumerate(records):
@@ -451,6 +451,10 @@ class Material:
         material.material_control = MaterialControl.consume_container(card_container, matxs_file)
 
         # TODO: Fill submaterials
+        while card_container._cards:
+            next_card_level = card_container.get_next_card_level()
+            if next_card_level <= 5:
+                break
 
         return material
 
