@@ -97,6 +97,11 @@ class CardContainer:
             return self._cards[0].label
         return None
 
+    def get_next_card_level(self):
+        if len(self._cards):
+            return self._cards[0].level
+        return None
+
 
 class FFDataRecordType(Enum):
     SCALAR = auto()
@@ -294,16 +299,68 @@ class GroupStructure:
         assert card.label == cls._LABEL, f"Expected label {cls._LABEL}, got {card.label}"
         assert card.level == cls._LEVEL, f"Expected level {cls._LEVEL}, got {card.level}"
 
-        j = len(matxs_file.particles)
-        ngr = matxs_file.file_data.data["ngrp"][j]
+        particle_idx = len(matxs_file.particles)
+        ngr = matxs_file.file_data.data["ngrp"][particle_idx]
 
         records = [
             FFDataRecord(key="title", count=1, kind="A4", type=FFDataRecordType.SCALAR),
             FFDataRecord(key=None, count=8, kind="X", type=FFDataRecordType.EMPTY),
-            FFDataRecord(key=None, count=2, kind="P", type=FFDataRecordType.DECIMAL_SHIFT),
+            FFDataRecord(key=None, count=1, kind="P", type=FFDataRecordType.DECIMAL_SHIFT),
             FFDataRecord(key="gpb", count=ngr, kind="E12.5", type=FFDataRecordType.ARRAY),
             FFDataRecord(key="emin", count=1, kind="E12.5", type=FFDataRecordType.SCALAR),
         ]
+
+        data = FFDataRecord.read_records(card.data, records)
+
+        return cls(data)
+
+
+# !cr material control
+# !c
+# !cl hmat,amass,(temp(i),sigz(i),itype(i),n1d(i),n2d(i),
+# !cl 1locs(i),i=1,nsubm)
+# !c
+# !cw mult+1+6*nsubm
+# !c
+# !cb format(4h 5d ,a8,1p,2e12.5/(2e12.5,5i6))
+# !c
+# !cd hmat hollerith material identifier
+# !cd amass atomic weight ratio
+# !cd temp ambient temperature or other parameters for
+# !cd submaterial i
+# !cd sigz dilution factor or other parameters for
+# !cd submaterial i
+# !cd itype data type for submaterial i
+# !cd n1d number of vectors for submaterial i
+# !cd n2d number of matrix blocks for submaterial i
+# !cd locs location of submaterial i
+
+
+@dataclass
+class MaterialControl:
+    data: dict
+
+    _LABEL = "5d"
+    _LEVEL = 5
+
+    @classmethod
+    def consume_container(cls, card_container: CardContainer, matxs_file: "MATXSFile"):
+        card = card_container._cards.pop(0)
+
+        assert card.label == cls._LABEL, f"Expected label {cls._LABEL}, got {card.label}"
+        assert card.level == cls._LEVEL, f"Expected level {cls._LEVEL}, got {card.level}"
+
+        material_idx = len(matxs_file.materials)
+        nsubm = matxs_file.file_data.data["nsubm"][material_idx]
+
+        records = [
+            FFDataRecord(key="title", count=1, kind="A4", type=FFDataRecordType.SCALAR),
+            FFDataRecord(key="hmat", count=1, kind="A8", type=FFDataRecordType.SCALAR),
+            FFDataRecord(key=None, count=1, kind="P", type=FFDataRecordType.DECIMAL_SHIFT),
+            FFDataRecord(key="amass", count=1, kind="E12.5", type=FFDataRecordType.SCALAR),
+        ]
+
+        # TODO: Add the rest of the records, read as a table
 
         data = FFDataRecord.read_records(card.data, records)
 
@@ -349,6 +406,19 @@ class Material:
     material_control: Optional[object] = None
     submaterials: list[SubMaterial] = field(default_factory=list)
 
+    @classmethod
+    def consume_container(cls, card_container: CardContainer, matxs_file: "MATXSFile"):
+        next_card_label = card_container.get_next_card_label()
+        assert next_card_label == "5d", f"Expected label 5d, got {next_card_label}"
+
+        material = cls()
+
+        material.material_control = MaterialControl.consume_container(card_container, matxs_file)
+
+        # TODO: Fill submaterials
+
+        return material
+
 
 @dataclass
 class Particle:
@@ -356,7 +426,13 @@ class Particle:
 
     @classmethod
     def consume_container(cls, card_container: CardContainer, matxs_file: "MATXSFile"):
-        particle = cls(group_structure=GroupStructure.consume_container(card_container, matxs_file))
+        next_card_label = card_container.get_next_card_label()
+        assert next_card_label == "4d", f"Expected label 4d, got {next_card_label}"
+
+        particle = cls()
+
+        particle.group_structure = GroupStructure.consume_container(card_container, matxs_file)
+
         return particle
 
 
@@ -383,6 +459,8 @@ class MATXSFile:
                 self.file_data = FileData.consume_container(card_container, self)
             elif next_card_label == "4d":
                 self.particles.append(Particle.consume_container(card_container, self))
+            elif next_card_label == "5d":
+                self.materials.append(Material.consume_container(card_container, self))
             elif next_card_label is None:
                 print(f"End of file reached")
                 break
