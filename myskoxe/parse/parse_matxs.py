@@ -56,6 +56,7 @@ class CardContainer:
             idx_list_too_wide_lines
         ), f"Line length exceeds {LINE_LENGTH} characters for {len(idx_list_too_wide_lines)} lines: {idx_list_too_wide_lines}"
 
+        # TODO: Remove these lines
         # # Pad lines that are too short
         # self.lines = [line.ljust(LINE_LENGTH) for line in self.lines]
 
@@ -404,7 +405,63 @@ class MaterialControl:
 
 @dataclass
 class VectorBlock:
-    pass
+    data: dict
+
+    _LABEL = "7d"
+    _LEVEL = 7
+
+    @classmethod
+    def consume_container(
+        cls,
+        card_container: CardContainer,
+        matxs_file: "MATXSFile",
+        material: "Material",
+        submaterial: "SubMaterial",
+        vector_control: "VectorControl",
+    ):
+        card = card_container._cards.pop(0)
+
+        assert card.label == cls._LABEL, f"Expected label {cls._LABEL}, got {card.label}"
+        assert card.level == cls._LEVEL, f"Expected level {cls._LEVEL}, got {card.level}"
+
+        maxw = matxs_file.file_control.data["maxw"]
+        vector_block_idx = len(submaterial.vector_blocks)
+
+        nfg = vector_control.data["nfg"]
+        nlg = vector_control.data["nlg"]
+
+        assert len(nfg) == len(nlg), f"Expected nfg and nlg to have the same length, got {len(nfg)} and {len(nlg)}"
+
+        group_count_per_vector = [nlg[i] - nfg[i] + 1 for i in range(len(nfg))]
+
+        # Cumulative sum of group_count_per_vector unless it reaches a value higher than maxw, then start a new cumulative sum
+        # until it reaches maxw again, etc.
+        group_count_per_vector_cumsum: list[int] = []
+        cumulative_sum = 0
+
+        for group_count in group_count_per_vector:
+            if cumulative_sum + group_count > maxw:
+                group_count_per_vector_cumsum.append(cumulative_sum)
+                cumulative_sum = 0
+            cumulative_sum += group_count
+
+        if cumulative_sum > 0:
+            group_count_per_vector_cumsum.append(cumulative_sum)
+
+        kmax = group_count_per_vector_cumsum[vector_block_idx]
+
+        print(f"vector_block_idx: {vector_block_idx}, kmax: {kmax}")
+
+        records = [
+            FFDataRecord(key="title", count=1, kind="A4", type=FFDataRecordType.SCALAR),
+            FFDataRecord(key=None, count=8, kind="X", type=FFDataRecordType.EMPTY),
+            FFDataRecord(key=None, count=1, kind="P", type=FFDataRecordType.DECIMAL_SHIFT),
+            FFDataRecord(key="vps", count=kmax, kind="E12.5", type=FFDataRecordType.ARRAY),
+        ]
+
+        data = FFDataRecord.read_records(card.data, records)
+
+        return cls(data)
 
 
 @dataclass
@@ -426,14 +483,77 @@ class MatrixControl:
 
 @dataclass
 class VectorControl:
-    pass
-    vector_blocks: list[VectorBlock] = field(default_factory=list)
+    data: dict
+
+    _LABEL = "6d"
+    _LEVEL = 6
+
+    @classmethod
+    def consume_container(
+        cls, card_container: CardContainer, matxs_file: "MATXSFile", material: "Material", submaterial: "SubMaterial"
+    ):
+        card = card_container._cards.pop(0)
+
+        assert card.label == cls._LABEL, f"Expected label {cls._LABEL}, got {card.label}"
+        assert card.level == cls._LEVEL, f"Expected level {cls._LEVEL}, got {card.level}"
+
+        submaterial_idx = len(material.submaterials)
+        n1d = material.material_control.data["n1d"][submaterial_idx]
+
+        records = [
+            FFDataRecord(key="title", count=1, kind="A4", type=FFDataRecordType.SCALAR),
+            FFDataRecord(key=None, count=4, kind="X", type=FFDataRecordType.EMPTY),
+            FFDataRecord(key="hvps", count=n1d, kind="A8", type=FFDataRecordType.ARRAY),
+            FFDataRecord(key="nfg", count=n1d, kind="I6", type=FFDataRecordType.ARRAY),
+            FFDataRecord(key="nlg", count=n1d, kind="I6", type=FFDataRecordType.ARRAY),
+        ]
+
+        data = FFDataRecord.read_records(card.data, records)
+
+        vector_control = cls(data)
+
+        while card_container._cards:
+            next_card_level = card_container.get_next_card_level()
+
+            if next_card_level is None or next_card_level <= 5:
+                break
+            elif next_card_level == 6:
+                raise ValueError(f"Unexpected card level {next_card_level}")
+            elif next_card_level == 7:
+                submaterial.vector_blocks.append(
+                    VectorBlock.consume_container(card_container, matxs_file, material, submaterial, vector_control)
+                )
+            else:
+                break
+
+        return vector_control
 
 
 @dataclass
 class SubMaterial:
     vector_control: Optional[VectorControl] = None
-    matrix_control: Optional[MatrixControl] = None
+    vector_blocks: list[VectorBlock] = field(default_factory=list)
+
+    @classmethod
+    def consume_container(cls, card_container: CardContainer, matxs_file: "MATXSFile", material: "Material"):
+        submaterial = cls()
+
+        while card_container._cards:
+            next_card_level = card_container.get_next_card_level()
+
+            if next_card_level is None or next_card_level <= 5:
+                break
+            elif next_card_level == 6:
+                submaterial.vector_control = VectorControl.consume_container(
+                    card_container, matxs_file, material, submaterial
+                )
+            else:
+                break  # TODO: Remove break
+                raise ValueError(f"Unexpected card level {next_card_level}")
+
+        # TODO implement the rest of the submaterial (matrix...)
+
+        return submaterial
 
 
 @dataclass
@@ -450,11 +570,16 @@ class Material:
 
         material.material_control = MaterialControl.consume_container(card_container, matxs_file)
 
-        # TODO: Fill submaterials
         while card_container._cards:
             next_card_level = card_container.get_next_card_level()
-            if next_card_level <= 5:
+
+            if next_card_level is None or next_card_level <= 5:
                 break
+            elif next_card_level == 6:
+                material.submaterials.append(SubMaterial.consume_container(card_container, matxs_file, material))
+            else:
+                break  # TODO: Remove break
+                raise ValueError(f"Unexpected card level {next_card_level}")
 
         return material
 
@@ -484,28 +609,34 @@ class MATXSFile:
     particles: list[Particle] = field(default_factory=list)
     materials: list[Material] = field(default_factory=list)
 
-    def consume_container(self, card_container: CardContainer):
+    @classmethod
+    def consume_container(cls, card_container: CardContainer):
+
+        matxs_file = MATXSFile()
+
         while card_container._cards:
             next_card_label = card_container.get_next_card_label()
 
+            if next_card_label is None:
+                break
+
             if next_card_label == "0v":
-                self.file_identification = FileIdentification.consume_container(card_container)
+                matxs_file.file_identification = FileIdentification.consume_container(card_container)
             elif next_card_label == "1d":
-                self.file_control = FileControl.consume_container(card_container)
+                matxs_file.file_control = FileControl.consume_container(card_container)
             elif next_card_label == "2d":
-                self.set_hollerith_identification = SetHollerithIdentification.consume_container(card_container)
+                matxs_file.set_hollerith_identification = SetHollerithIdentification.consume_container(card_container)
             elif next_card_label == "3d":
-                self.file_data = FileData.consume_container(card_container, self)
+                matxs_file.file_data = FileData.consume_container(card_container, matxs_file)
             elif next_card_label == "4d":
-                self.particles.append(Particle.consume_container(card_container, self))
+                matxs_file.particles.append(Particle.consume_container(card_container, matxs_file))
             elif next_card_label == "5d":
-                self.materials.append(Material.consume_container(card_container, self))
-            elif next_card_label is None:
-                print(f"End of file reached")
-                break
+                matxs_file.materials.append(Material.consume_container(card_container, matxs_file))
             else:
-                break
+                break  # TODO: Remove break
                 raise ValueError(f"The card {card} should have been consumed further down the line")
+
+        return matxs_file
 
 
 if __name__ == "__main__":
@@ -513,9 +644,6 @@ if __name__ == "__main__":
 
     lines = gendf_path.read_text().splitlines()
 
-    matxs_file = CardContainer(lines)
-    print(len(matxs_file._cards))
-
-    matxs = MATXSFile()
-    matxs.consume_container(matxs_file)
+    matxs_file_data = CardContainer(lines)
+    matxs = MATXSFile.consume_container(matxs_file_data)
     print(matxs)
