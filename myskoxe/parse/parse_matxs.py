@@ -103,6 +103,9 @@ class CardContainer:
             return self._cards[0].level
         return None
 
+    def __str__(self):
+        return f"CardContainer with {len(self._cards)} cards: {[card.label for card in self._cards]}"
+
 
 class FFDataRecordType(Enum):
     SCALAR = auto()
@@ -450,7 +453,9 @@ class VectorBlock:
 
         kmax = group_count_per_vector_cumsum[vector_block_idx]
 
-        print(f"vector_block_idx: {vector_block_idx}, kmax: {kmax}")
+        print(
+            f"vector_block_idx: {vector_block_idx}, kmax: {kmax}, expecting {len(group_count_per_vector_cumsum)} vector blocks"
+        )
 
         records = [
             FFDataRecord(key="title", count=1, kind="A4", type=FFDataRecordType.SCALAR),
@@ -464,9 +469,90 @@ class VectorBlock:
         return cls(data)
 
 
+# !cr scattering sub-block
+# !c
+# !c
+# !cl (scat(k),k=1,kmax)
+# !cc kmax=lord times the sum over all jband in the group range of
+# !cc this sub-block
+# !c
+# !c
+# !cb format(4h 9d ,8x,1p,5e12.5/(6e12.5))
+# !cw kmax
+# !c
+# !cd
+# scat(k) matrix data given as bands of elements for initial
+# groups that lead to each final group. the order
+# of the elements is as follows: band for p0 of
+# group i, band for p1 of group i, ... , band for p0
+# of group i+1, band for p1 of group i+1, etc. the
+# groups in each band are given in descending order.
+# the size of each sub-block is determined by the
+# total length of a group of bands that is less than
+# !cd or equal to maxw.
+# !cd !cd if jconst.gt.0, the contributions from the jconst
+# low-energy groups are given separately.
+
+
 @dataclass
 class MatrixSubBlock:
-    pass  # TODO
+    data: dict
+
+    _LABEL = "9d"
+    _LEVEL = 9
+
+    @classmethod
+    def consume_container(
+        cls,
+        card_container: CardContainer,
+        matxs_file: "MATXSFile",
+        material: "Material",
+        submaterial: "SubMaterial",
+        matrix_block: "MatrixBlock",
+        matrix_control: "MatrixControl",
+    ):
+        card = card_container._cards.pop(0)
+
+        assert card.label == cls._LABEL, f"Expected label {cls._LABEL}, got {card.label}"
+        assert card.level == cls._LEVEL, f"Expected level {cls._LEVEL}, got {card.level}"
+
+        maxw = matxs_file.file_control.data["maxw"]
+        sub_block_idx = len(matrix_block.matrix_sub_blocks)
+
+        lord = matrix_control.data["lord"]
+        jband = matrix_control.data["jband"]
+
+        # Cumulative sum of jband*lord unless it reaches a value higher than maxw, then start a new cumulative sum
+        # until it reaches maxw again, etc.
+        jband_cumsum: list[int] = []
+        cumulative_sum = 0
+
+        for bandwidth in jband:
+            if cumulative_sum + lord * bandwidth > maxw:
+                jband_cumsum.append(cumulative_sum)
+                cumulative_sum = 0
+            cumulative_sum += lord * bandwidth
+
+        if cumulative_sum > 0:
+            jband_cumsum.append(cumulative_sum)
+
+        kmax = jband_cumsum[sub_block_idx]
+
+        print(f"sub_block_idx: {sub_block_idx}, kmax: {kmax}, expecting {len(jband_cumsum)} sub-blocks")
+
+        records = [
+            FFDataRecord(key="title", count=1, kind="A4", type=FFDataRecordType.SCALAR),
+            FFDataRecord(key=None, count=8, kind="X", type=FFDataRecordType.EMPTY),
+            FFDataRecord(key=None, count=1, kind="P", type=FFDataRecordType.DECIMAL_SHIFT),
+            FFDataRecord(key="scat", count=kmax, kind="E12.5", type=FFDataRecordType.ARRAY),
+        ]
+
+        data = FFDataRecord.read_records(card.data, records)
+
+        if len(jband_cumsum) - 1 == sub_block_idx:
+            print("last sub block for this matrix block: ", cls(data))
+
+        return cls(data)
 
 
 @dataclass
@@ -520,11 +606,11 @@ class MatrixControl:
             if next_card_level is None or next_card_level <= 8:
                 break
             elif next_card_level == 9:
-                # TODO: Implement matrix sub-block
-                card_container._cards.pop(0)
-                # matrix_block.matrix_sub_blocks.append(
-                #     MatrixSubBlock.consume_container(card_container, matxs_file, material, submaterial, vector_control)
-                # )
+                matrix_block.matrix_sub_blocks.append(
+                    MatrixSubBlock.consume_container(
+                        card_container, matxs_file, material, submaterial, matrix_block, matrix_control
+                    )
+                )
             elif next_card_level == 10:
                 # TODO: Implement constant sub-block
                 card_container._cards.pop(0)
@@ -552,10 +638,12 @@ class MatrixBlock:
 
             if next_card_level is None or next_card_level <= 7:
                 break
-            elif next_card_level == 8:
+            elif next_card_level == 8 and matrix_block.matrix_control is None:
                 matrix_block.matrix_control = MatrixControl.consume_container(
                     card_container, matxs_file, material, submaterial, matrix_block
                 )
+            elif next_card_level == 8 and matrix_block.matrix_control is not None:
+                break
             else:
                 raise ValueError(f"Unexpected card level {next_card_level}")
 
@@ -619,6 +707,10 @@ class SubMaterial:
 
     @classmethod
     def consume_container(cls, card_container: CardContainer, matxs_file: "MATXSFile", material: "Material"):
+        submaterial_idx = len(material.submaterials)
+        n1d = material.material_control.data["n1d"][submaterial_idx]
+        n2d = material.material_control.data["n2d"][submaterial_idx]
+
         submaterial = cls()
 
         while card_container._cards:
@@ -635,13 +727,13 @@ class SubMaterial:
             elif next_card_level == 7:
                 raise ValueError(f"Unexpected card level {next_card_level}")
             elif next_card_level == 8:
+                if len(submaterial.matrix_blocks) == n2d:  # Already found enough matrix blocks for the submaterial
+                    break
                 submaterial.matrix_blocks.append(
                     MatrixBlock.consume_container(card_container, matxs_file, material, submaterial)
                 )
             else:
                 raise ValueError(f"Unexpected card level {next_card_level}")
-
-        # TODO implement the rest of the submaterial (matrix...)
 
         return submaterial
 
@@ -665,8 +757,10 @@ class Material:
 
             if next_card_level is None or next_card_level <= 5:
                 break
-            elif next_card_level == 6:
+            elif next_card_level == 6 or next_card_level == 8:  # Vector block or matrix block
+                print(f"Adding submaterial {len(material.submaterials)+1}")
                 material.submaterials.append(SubMaterial.consume_container(card_container, matxs_file, material))
+                print(f"Added submaterial {len(material.submaterials)}")
             else:
                 break  # TODO: Remove break
                 raise ValueError(f"Unexpected card level {next_card_level}")
@@ -732,10 +826,12 @@ class MATXSFile:
 if __name__ == "__main__":
     gendf_path = Path(
         f"/Users/sigge/projects/physics/myskoxe/myskoxe/frendy/tests/U235_MATXS_92235.09c_modified_row_56.mg"
+        # f"/Users/sigge/projects/physics/myskoxe/myskoxe/frendy/tests/U235_MATXS_92235.09c.mg"
     )
 
     lines = gendf_path.read_text().splitlines()
 
     matxs_file_data = CardContainer(lines)
+    print(matxs_file_data)
     matxs = MATXSFile.consume_container(matxs_file_data)
     # print(matxs)
