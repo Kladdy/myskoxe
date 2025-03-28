@@ -20,12 +20,12 @@ LINE_LENGTH = 72
     # 5d material control
     # submaterials:
         # 6d vector control
-            # vector blocks:
-                # 7d vector block
+        # vector blocks:
+            # 7d vector block
         # matrix blocks:
             # 8d matrix control
-                # sub-blocks:
-                    # 9d matrix data
+            # sub-blocks:
+                # 9d matrix data
             # 10d constant data
 """
 
@@ -181,8 +181,8 @@ class FFDataRecord:
 
         # Read the data
         format_str = ",".join([f"{record.count}{record.kind}" for record in records])
-        print(format_str)
         parsed_card = ff.FortranRecordReader(format_str).read(data)
+        print(parsed_card[0], format_str)
 
         assert len(parsed_card) == sum(
             [
@@ -466,19 +466,100 @@ class VectorBlock:
 
 @dataclass
 class MatrixSubBlock:
-    pass
+    pass  # TODO
 
 
 @dataclass
 class ConstantSubBlock:
-    pass
+    pass  # TODO
 
 
 @dataclass
 class MatrixControl:
-    pass
-    sub_blocks: list[MatrixSubBlock] = field(default_factory=list)
+    data: dict
+
+    _LABEL = "8d"
+    _LEVEL = 8
+
+    @classmethod
+    def consume_container(
+        cls,
+        card_container: CardContainer,
+        matxs_file: "MATXSFile",
+        material: "Material",
+        submaterial: "SubMaterial",
+        matrix_block: "MatrixBlock",
+    ):
+        card = card_container._cards.pop(0)
+
+        assert card.label == cls._LABEL, f"Expected label {cls._LABEL}, got {card.label}"
+        assert card.level == cls._LEVEL, f"Expected level {cls._LEVEL}, got {card.level}"
+
+        submaterial_idx = len(material.submaterials)
+        data_type = material.material_control.data["itype"][submaterial_idx]
+        joutp = matxs_file.file_data.data["joutp"][data_type - 1]
+        noutg = matxs_file.file_data.data["ngrp"][joutp - 1]
+
+        records = [
+            FFDataRecord(key="title", count=1, kind="A4", type=FFDataRecordType.SCALAR),
+            FFDataRecord(key=None, count=4, kind="X", type=FFDataRecordType.EMPTY),
+            FFDataRecord(key="hmtx", count=1, kind="A8", type=FFDataRecordType.SCALAR),
+            FFDataRecord(key="lord", count=1, kind="I6", type=FFDataRecordType.SCALAR),
+            FFDataRecord(key="jconst", count=1, kind="I6", type=FFDataRecordType.SCALAR),
+            FFDataRecord(key="jband", count=noutg, kind="I6", type=FFDataRecordType.ARRAY),
+            FFDataRecord(key="ijj", count=noutg, kind="I6", type=FFDataRecordType.ARRAY),
+        ]
+
+        data = FFDataRecord.read_records(card.data, records)
+
+        matrix_control = cls(data)
+
+        while card_container._cards:
+            next_card_level = card_container.get_next_card_level()
+
+            if next_card_level is None or next_card_level <= 8:
+                break
+            elif next_card_level == 9:
+                # TODO: Implement matrix sub-block
+                card_container._cards.pop(0)
+                # matrix_block.matrix_sub_blocks.append(
+                #     MatrixSubBlock.consume_container(card_container, matxs_file, material, submaterial, vector_control)
+                # )
+            elif next_card_level == 10:
+                # TODO: Implement constant sub-block
+                card_container._cards.pop(0)
+                # matrix_block.constant_sub_block = ConstantSubBlock.consume_container(
+            else:
+                raise ValueError(f"Unexpected card level {next_card_level}")
+
+        return matrix_control
+
+
+@dataclass
+class MatrixBlock:
+    matrix_control: Optional[MatrixControl] = None
+    matrix_sub_blocks: list[MatrixSubBlock] = field(default_factory=list)
     constant_sub_block: Optional[ConstantSubBlock] = None
+
+    @classmethod
+    def consume_container(
+        cls, card_container: CardContainer, matxs_file: "MATXSFile", material: "Material", submaterial: "SubMaterial"
+    ):
+        matrix_block = cls()
+
+        while card_container._cards:
+            next_card_level = card_container.get_next_card_level()
+
+            if next_card_level is None or next_card_level <= 7:
+                break
+            elif next_card_level == 8:
+                matrix_block.matrix_control = MatrixControl.consume_container(
+                    card_container, matxs_file, material, submaterial, matrix_block
+                )
+            else:
+                raise ValueError(f"Unexpected card level {next_card_level}")
+
+        return submaterial
 
 
 @dataclass
@@ -499,6 +580,7 @@ class VectorControl:
 
         submaterial_idx = len(material.submaterials)
         n1d = material.material_control.data["n1d"][submaterial_idx]
+        print(f"n1d: {n1d}", f"submaterial_idx: {submaterial_idx}")
 
         records = [
             FFDataRecord(key="title", count=1, kind="A4", type=FFDataRecordType.SCALAR),
@@ -533,6 +615,7 @@ class VectorControl:
 class SubMaterial:
     vector_control: Optional[VectorControl] = None
     vector_blocks: list[VectorBlock] = field(default_factory=list)
+    matrix_blocks: list[MatrixBlock] = field(default_factory=list)
 
     @classmethod
     def consume_container(cls, card_container: CardContainer, matxs_file: "MATXSFile", material: "Material"):
@@ -543,12 +626,19 @@ class SubMaterial:
 
             if next_card_level is None or next_card_level <= 5:
                 break
-            elif next_card_level == 6:
+            elif next_card_level == 6 and submaterial.vector_control is None:
                 submaterial.vector_control = VectorControl.consume_container(
                     card_container, matxs_file, material, submaterial
                 )
+            elif next_card_level == 6 and submaterial.vector_control is not None:
+                break
+            elif next_card_level == 7:
+                raise ValueError(f"Unexpected card level {next_card_level}")
+            elif next_card_level == 8:
+                submaterial.matrix_blocks.append(
+                    MatrixBlock.consume_container(card_container, matxs_file, material, submaterial)
+                )
             else:
-                break  # TODO: Remove break
                 raise ValueError(f"Unexpected card level {next_card_level}")
 
         # TODO implement the rest of the submaterial (matrix...)
@@ -558,7 +648,7 @@ class SubMaterial:
 
 @dataclass
 class Material:
-    material_control: Optional[object] = None
+    material_control: Optional[MaterialControl] = None
     submaterials: list[SubMaterial] = field(default_factory=list)
 
     @classmethod
@@ -640,10 +730,12 @@ class MATXSFile:
 
 
 if __name__ == "__main__":
-    gendf_path = Path(f"/Users/sigge/projects/physics/myskoxe/myskoxe/frendy/tests/U235_MATXS_92235.09c.mg")
+    gendf_path = Path(
+        f"/Users/sigge/projects/physics/myskoxe/myskoxe/frendy/tests/U235_MATXS_92235.09c_modified_row_56.mg"
+    )
 
     lines = gendf_path.read_text().splitlines()
 
     matxs_file_data = CardContainer(lines)
     matxs = MATXSFile.consume_container(matxs_file_data)
-    print(matxs)
+    # print(matxs)
