@@ -1,7 +1,6 @@
 import re
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from pathlib import Path
 from typing import Optional
 
 import fortranformat as ff
@@ -219,7 +218,7 @@ class FFDataRecord:
 
 
 @dataclass
-class FileIdentification:
+class MATXSFileIdentification:
     data: dict
 
     _LABEL = "0v"
@@ -248,7 +247,7 @@ class FileIdentification:
 
 
 @dataclass
-class FileControl:
+class MATXSFileControl:
     data: dict
 
     _LABEL = "1d"
@@ -277,7 +276,7 @@ class FileControl:
 
 
 @dataclass
-class SetHollerithIdentification:
+class MATXSSetHollerithIdentification:
     data: dict
 
     _LABEL = "2d"
@@ -301,7 +300,7 @@ class SetHollerithIdentification:
 
 
 @dataclass
-class FileData:
+class MATXSFileData:
     data: dict
 
     _LABEL = "3d"
@@ -337,7 +336,7 @@ class FileData:
 
 
 @dataclass
-class GroupStructure:
+class MATXSGroupStructure:
     data: dict
 
     _LABEL = "4d"
@@ -367,7 +366,7 @@ class GroupStructure:
 
 
 @dataclass
-class MaterialControl:
+class MATXSMaterialControl:
     data: dict
 
     _LABEL = "5d"
@@ -402,7 +401,7 @@ class MaterialControl:
 
 
 @dataclass
-class VectorBlock:
+class MATXSVectorBlock:
     data: dict
 
     _LABEL = "7d"
@@ -413,9 +412,9 @@ class VectorBlock:
         cls,
         card_container: CardContainer,
         matxs_file: "MATXSFile",
-        material: "Material",
-        submaterial: "SubMaterial",
-        vector_control: "VectorControl",
+        material: "MATXSMaterial",
+        submaterial: "MATXSSubMaterial",
+        vector_control: "MATXSVectorControl",
     ):
         card = card_container._cards.pop(0)
 
@@ -461,7 +460,7 @@ class VectorBlock:
 
 
 @dataclass
-class MatrixSubBlock:
+class MATXSMatrixSubBlock:
     data: dict
 
     _LABEL = "9d"
@@ -472,10 +471,10 @@ class MatrixSubBlock:
         cls,
         card_container: CardContainer,
         matxs_file: "MATXSFile",
-        material: "Material",
-        submaterial: "SubMaterial",
-        matrix_block: "MatrixBlock",
-        matrix_control: "MatrixControl",
+        material: "MATXSMaterial",
+        submaterial: "MATXSSubMaterial",
+        matrix_block: "MATXSMatrixBlock",
+        matrix_control: "MATXSMatrixControl",
     ):
         card = card_container._cards.pop(0)
 
@@ -517,7 +516,7 @@ class MatrixSubBlock:
 
 
 @dataclass
-class ConstantSubBlock:
+class MATXSConstantSubBlock:
     data: dict
 
     _LABEL = "10d"
@@ -528,9 +527,9 @@ class ConstantSubBlock:
         cls,
         card_container: CardContainer,
         matxs_file: "MATXSFile",
-        material: "Material",
-        submaterial: "SubMaterial",
-        matrix_block: "MatrixBlock",
+        material: "MATXSMaterial",
+        submaterial: "MATXSSubMaterial",
+        matrix_block: "MATXSMatrixBlock",
     ):
         card = card_container._cards.pop(0)
 
@@ -558,7 +557,7 @@ class ConstantSubBlock:
 
 
 @dataclass
-class MatrixControl:
+class MATXSMatrixControl:
     data: dict
 
     _LABEL = "8d"
@@ -569,9 +568,9 @@ class MatrixControl:
         cls,
         card_container: CardContainer,
         matxs_file: "MATXSFile",
-        material: "Material",
-        submaterial: "SubMaterial",
-        matrix_block: "MatrixBlock",
+        material: "MATXSMaterial",
+        submaterial: "MATXSSubMaterial",
+        matrix_block: "MATXSMatrixBlock",
     ):
         card = card_container._cards.pop(0)
 
@@ -604,12 +603,12 @@ class MatrixControl:
                 break
             elif next_card_level == 9:
                 matrix_block.matrix_sub_blocks.append(
-                    MatrixSubBlock.consume_container(
+                    MATXSMatrixSubBlock.consume_container(
                         card_container, matxs_file, material, submaterial, matrix_block, matrix_control
                     )
                 )
             elif next_card_level == 10:
-                matrix_block.constant_sub_block = ConstantSubBlock.consume_container(
+                matrix_block.constant_sub_block = MATXSConstantSubBlock.consume_container(
                     card_container, matxs_file, material, submaterial, matrix_block
                 )
             else:
@@ -619,14 +618,18 @@ class MatrixControl:
 
 
 @dataclass
-class MatrixBlock:
-    matrix_control: Optional[MatrixControl] = None
-    matrix_sub_blocks: list[MatrixSubBlock] = field(default_factory=list)
-    constant_sub_block: Optional[ConstantSubBlock] = None
+class MATXSMatrixBlock:
+    matrix_control: Optional[MATXSMatrixControl] = None
+    matrix_sub_blocks: list[MATXSMatrixSubBlock] = field(default_factory=list)
+    constant_sub_block: Optional[MATXSConstantSubBlock] = None
 
     @classmethod
     def consume_container(
-        cls, card_container: CardContainer, matxs_file: "MATXSFile", material: "Material", submaterial: "SubMaterial"
+        cls,
+        card_container: CardContainer,
+        matxs_file: "MATXSFile",
+        material: "MATXSMaterial",
+        submaterial: "MATXSSubMaterial",
     ):
         matrix_block = cls()
 
@@ -636,7 +639,7 @@ class MatrixBlock:
             if next_card_level is None or next_card_level <= 7:
                 break
             elif next_card_level == 8 and matrix_block.matrix_control is None:
-                matrix_block.matrix_control = MatrixControl.consume_container(
+                matrix_block.matrix_control = MATXSMatrixControl.consume_container(
                     card_container, matxs_file, material, submaterial, matrix_block
                 )
             elif next_card_level == 8 and matrix_block.matrix_control is not None:
@@ -648,7 +651,7 @@ class MatrixBlock:
 
 
 @dataclass
-class VectorControl:
+class MATXSVectorControl:
     data: dict
 
     _LABEL = "6d"
@@ -656,7 +659,11 @@ class VectorControl:
 
     @classmethod
     def consume_container(
-        cls, card_container: CardContainer, matxs_file: "MATXSFile", material: "Material", submaterial: "SubMaterial"
+        cls,
+        card_container: CardContainer,
+        matxs_file: "MATXSFile",
+        material: "MATXSMaterial",
+        submaterial: "MATXSSubMaterial",
     ):
         card = card_container._cards.pop(0)
 
@@ -687,7 +694,9 @@ class VectorControl:
                 raise ValueError(f"Unexpected card level {next_card_level}")
             elif next_card_level == 7:
                 submaterial.vector_blocks.append(
-                    VectorBlock.consume_container(card_container, matxs_file, material, submaterial, vector_control)
+                    MATXSVectorBlock.consume_container(
+                        card_container, matxs_file, material, submaterial, vector_control
+                    )
                 )
             else:
                 break
@@ -696,13 +705,13 @@ class VectorControl:
 
 
 @dataclass
-class SubMaterial:
-    vector_control: Optional[VectorControl] = None
-    vector_blocks: list[VectorBlock] = field(default_factory=list)
-    matrix_blocks: list[MatrixBlock] = field(default_factory=list)
+class MATXSSubMaterial:
+    vector_control: Optional[MATXSVectorControl] = None
+    vector_blocks: list[MATXSVectorBlock] = field(default_factory=list)
+    matrix_blocks: list[MATXSMatrixBlock] = field(default_factory=list)
 
     @classmethod
-    def consume_container(cls, card_container: CardContainer, matxs_file: "MATXSFile", material: "Material"):
+    def consume_container(cls, card_container: CardContainer, matxs_file: "MATXSFile", material: "MATXSMaterial"):
         submaterial_idx = len(material.submaterials)
         n1d = material.material_control.data["n1d"][submaterial_idx]
         n2d = material.material_control.data["n2d"][submaterial_idx]
@@ -715,7 +724,7 @@ class SubMaterial:
             if next_card_level is None or next_card_level <= 5:
                 break
             elif next_card_level == 6 and submaterial.vector_control is None:
-                submaterial.vector_control = VectorControl.consume_container(
+                submaterial.vector_control = MATXSVectorControl.consume_container(
                     card_container, matxs_file, material, submaterial
                 )
             elif next_card_level == 6 and submaterial.vector_control is not None:
@@ -726,7 +735,7 @@ class SubMaterial:
                 if len(submaterial.matrix_blocks) == n2d:  # Already found enough matrix blocks for the submaterial
                     break
                 submaterial.matrix_blocks.append(
-                    MatrixBlock.consume_container(card_container, matxs_file, material, submaterial)
+                    MATXSMatrixBlock.consume_container(card_container, matxs_file, material, submaterial)
                 )
             else:
                 raise ValueError(f"Unexpected card level {next_card_level}")
@@ -735,9 +744,9 @@ class SubMaterial:
 
 
 @dataclass
-class Material:
-    material_control: Optional[MaterialControl] = None
-    submaterials: list[SubMaterial] = field(default_factory=list)
+class MATXSMaterial:
+    material_control: Optional[MATXSMaterialControl] = None
+    submaterials: list[MATXSSubMaterial] = field(default_factory=list)
 
     @classmethod
     def consume_container(cls, card_container: CardContainer, matxs_file: "MATXSFile"):
@@ -746,7 +755,7 @@ class Material:
 
         material = cls()
 
-        material.material_control = MaterialControl.consume_container(card_container, matxs_file)
+        material.material_control = MATXSMaterialControl.consume_container(card_container, matxs_file)
 
         while card_container._cards:
             next_card_level = card_container.get_next_card_level()
@@ -754,7 +763,7 @@ class Material:
             if next_card_level is None or next_card_level <= 5:
                 break
             elif next_card_level == 6 or next_card_level == 8:  # Vector block or matrix block
-                material.submaterials.append(SubMaterial.consume_container(card_container, matxs_file, material))
+                material.submaterials.append(MATXSSubMaterial.consume_container(card_container, matxs_file, material))
             else:
                 raise ValueError(f"Unexpected card level {next_card_level}")
 
@@ -762,8 +771,8 @@ class Material:
 
 
 @dataclass
-class Particle:
-    group_structure: Optional[GroupStructure] = None
+class MATXSParticle:
+    group_structure: Optional[MATXSGroupStructure] = None
 
     @classmethod
     def consume_container(cls, card_container: CardContainer, matxs_file: "MATXSFile"):
@@ -772,19 +781,19 @@ class Particle:
 
         particle = cls()
 
-        particle.group_structure = GroupStructure.consume_container(card_container, matxs_file)
+        particle.group_structure = MATXSGroupStructure.consume_container(card_container, matxs_file)
 
         return particle
 
 
 @dataclass
 class MATXSFile:
-    file_identification: Optional[FileIdentification] = None
-    file_control: Optional[FileControl] = None
-    set_hollerith_identification: Optional[SetHollerithIdentification] = None
-    file_data: Optional[FileData] = None
-    particles: list[Particle] = field(default_factory=list)
-    materials: list[Material] = field(default_factory=list)
+    file_identification: Optional[MATXSFileIdentification] = None
+    file_control: Optional[MATXSFileControl] = None
+    set_hollerith_identification: Optional[MATXSSetHollerithIdentification] = None
+    file_data: Optional[MATXSFileData] = None
+    particles: list[MATXSParticle] = field(default_factory=list)
+    materials: list[MATXSMaterial] = field(default_factory=list)
 
     @classmethod
     def consume_container(cls, card_container: CardContainer):
@@ -798,32 +807,20 @@ class MATXSFile:
                 break
 
             if next_card_label == "0v":
-                matxs_file.file_identification = FileIdentification.consume_container(card_container)
+                matxs_file.file_identification = MATXSFileIdentification.consume_container(card_container)
             elif next_card_label == "1d":
-                matxs_file.file_control = FileControl.consume_container(card_container)
+                matxs_file.file_control = MATXSFileControl.consume_container(card_container)
             elif next_card_label == "2d":
-                matxs_file.set_hollerith_identification = SetHollerithIdentification.consume_container(card_container)
+                matxs_file.set_hollerith_identification = MATXSSetHollerithIdentification.consume_container(
+                    card_container
+                )
             elif next_card_label == "3d":
-                matxs_file.file_data = FileData.consume_container(card_container, matxs_file)
+                matxs_file.file_data = MATXSFileData.consume_container(card_container, matxs_file)
             elif next_card_label == "4d":
-                matxs_file.particles.append(Particle.consume_container(card_container, matxs_file))
+                matxs_file.particles.append(MATXSParticle.consume_container(card_container, matxs_file))
             elif next_card_label == "5d":
-                matxs_file.materials.append(Material.consume_container(card_container, matxs_file))
+                matxs_file.materials.append(MATXSMaterial.consume_container(card_container, matxs_file))
             else:
                 raise ValueError(f"The card {next_card_label} should have been consumed further down the line")
 
         return matxs_file
-
-
-if __name__ == "__main__":
-    gendf_path = Path(
-        f"/Users/sigge/projects/physics/myskoxe/myskoxe/frendy/tests/U235_MATXS_92235.09c_modified_row_56.mg"
-        # f"/Users/sigge/projects/physics/myskoxe/myskoxe/frendy/tests/U235_MATXS_92235.09c.mg"
-    )
-
-    lines = gendf_path.read_text().splitlines()
-
-    matxs_file_data = CardContainer(lines)
-    print(matxs_file_data)
-    matxs = MATXSFile.consume_container(matxs_file_data)
-    print(matxs)
