@@ -469,31 +469,6 @@ class VectorBlock:
         return cls(data)
 
 
-# !cr scattering sub-block
-# !c
-# !c
-# !cl (scat(k),k=1,kmax)
-# !cc kmax=lord times the sum over all jband in the group range of
-# !cc this sub-block
-# !c
-# !c
-# !cb format(4h 9d ,8x,1p,5e12.5/(6e12.5))
-# !cw kmax
-# !c
-# !cd
-# scat(k) matrix data given as bands of elements for initial
-# groups that lead to each final group. the order
-# of the elements is as follows: band for p0 of
-# group i, band for p1 of group i, ... , band for p0
-# of group i+1, band for p1 of group i+1, etc. the
-# groups in each band are given in descending order.
-# the size of each sub-block is determined by the
-# total length of a group of bands that is less than
-# !cd or equal to maxw.
-# !cd !cd if jconst.gt.0, the contributions from the jconst
-# low-energy groups are given separately.
-
-
 @dataclass
 class MatrixSubBlock:
     data: dict
@@ -549,15 +524,48 @@ class MatrixSubBlock:
 
         data = FFDataRecord.read_records(card.data, records)
 
-        if len(jband_cumsum) - 1 == sub_block_idx:
-            print("last sub block for this matrix block: ", cls(data))
-
         return cls(data)
 
 
 @dataclass
 class ConstantSubBlock:
-    pass  # TODO
+    data: dict
+
+    _LABEL = "10d"
+    _LEVEL = 10
+
+    @classmethod
+    def consume_container(
+        cls,
+        card_container: CardContainer,
+        matxs_file: "MATXSFile",
+        material: "Material",
+        submaterial: "SubMaterial",
+        matrix_block: "MatrixBlock",
+    ):
+        card = card_container._cards.pop(0)
+
+        assert card.label == cls._LABEL, f"Expected label {cls._LABEL}, got {card.label}"
+        assert card.level == cls._LEVEL, f"Expected level {cls._LEVEL}, got {card.level}"
+
+        submaterial_idx = len(material.submaterials)
+        data_type = material.material_control.data["itype"][submaterial_idx]
+        joutp = matxs_file.file_data.data["joutp"][data_type - 1]
+        noutg = matxs_file.file_data.data["ngrp"][joutp - 1]
+
+        jconst = matrix_block.matrix_control.data["jconst"]
+
+        records = [
+            FFDataRecord(key="title", count=1, kind="A4", type=FFDataRecordType.SCALAR),
+            FFDataRecord(key=None, count=8, kind="X", type=FFDataRecordType.EMPTY),
+            FFDataRecord(key=None, count=1, kind="P", type=FFDataRecordType.DECIMAL_SHIFT),
+            FFDataRecord(key="spec", count=noutg, kind="E12.5", type=FFDataRecordType.TABLE),
+            FFDataRecord(key="prod", count=jconst, kind="E12.5", type=FFDataRecordType.TABLE),
+        ]
+
+        data = FFDataRecord.read_records(card.data, records)
+
+        return cls(data)
 
 
 @dataclass
@@ -612,9 +620,9 @@ class MatrixControl:
                     )
                 )
             elif next_card_level == 10:
-                # TODO: Implement constant sub-block
-                card_container._cards.pop(0)
-                # matrix_block.constant_sub_block = ConstantSubBlock.consume_container(
+                matrix_block.constant_sub_block = ConstantSubBlock.consume_container(
+                    card_container, matxs_file, material, submaterial, matrix_block
+                )
             else:
                 raise ValueError(f"Unexpected card level {next_card_level}")
 
