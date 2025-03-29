@@ -826,4 +826,4 @@ if __name__ == "__main__":
     matxs_file_data = CardContainer(lines)
     print(matxs_file_data)
     matxs = MATXSFile.consume_container(matxs_file_data)
-    # print(matxs)
+    print(matxs)
