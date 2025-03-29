@@ -232,7 +232,6 @@ class MATXSFileIdentification:
         assert card.label == cls._LABEL, f"Expected label {cls._LABEL}, got {card.label}"
         assert card.level == cls._LEVEL, f"Expected level {cls._LEVEL}, got {card.level}"
 
-        # ff_format = ff.FortranRecordReader("(A4,A8,A1,2A8,A1,I6)")
         records = [
             FFDataRecord(key="title", count=1, kind="A4", type=FFDataRecordType.SCALAR),
             FFDataRecord(key="hname", count=1, kind="A8", type=FFDataRecordType.SCALAR),
@@ -432,8 +431,8 @@ class MATXSVectorBlock:
 
         group_count_per_vector = [nlg[i] - nfg[i] + 1 for i in range(len(nfg))]
 
-        # Cumulative sum of group_count_per_vector unless it reaches a value higher than maxw, then start a new cumulative sum
-        # until it reaches maxw again, etc.
+        # Cumulative sum of group_count_per_vector unless it reaches a value higher than maxw,
+        # then start a new cumulative sum until it reaches maxw again, etc.
         group_count_per_vector_cumsum: list[int] = []
         cumulative_sum = 0
 
@@ -488,8 +487,8 @@ class MATXSMatrixSubBlock:
         lord = matrix_control.data["lord"]
         jband = matrix_control.data["jband"]
 
-        # Cumulative sum of jband*lord unless it reaches a value higher than maxw, then start a new cumulative sum
-        # until it reaches maxw again, etc.
+        # Cumulative sum of jband*lord unless it reaches a value higher than maxw,
+        # then start a new cumulative sum until it reaches maxw again, etc.
         jband_cumsum: list[int] = []
         cumulative_sum = 0
 
@@ -513,10 +512,6 @@ class MATXSMatrixSubBlock:
 
         kmax = jband_cumsum[sub_block_idx]
 
-        print(counters)
-        print(f"sub_block_idx: {sub_block_idx}, maxw: {maxw}, jband: {jband}, lord: {lord}")
-        print(f"jband_cumsum: {jband_cumsum}, lord: {lord}, kmax: {kmax}, sub_block_idx: {sub_block_idx}")
-
         records = [
             FFDataRecord(key="title", count=1, kind="A4", type=FFDataRecordType.SCALAR),
             FFDataRecord(key=None, count=8, kind="X", type=FFDataRecordType.EMPTY),
@@ -530,14 +525,15 @@ class MATXSMatrixSubBlock:
         scat_none_count = sum(1 for scat in data["scat"] if scat is None)
 
         # Check if any scat is None. This occurs due to a potential bug in how FRENDY genereates the 9d card.
-        # The bug  makes it so that the energy groups come in the reverse order.This has been reported to the
+        # The bug  makes it so that the energy groups come in the reverse order. This has been reported to the
         # FRENDY authors at 2025-03-08
         if scat_none_count:
-            print(
+            matxs_file.messages.append(
                 f"Setting read_subblocks_reverse to True for card betweween line indicies {card.start_idx} and {card.stop_idx} (found {scat_none_count} None values in scat)"
             )
+
             card_container._cards.insert(0, card)  # Reinsert the card to the front of the container
-            matrix_block.read_subblocks_reverse = True
+            matrix_block.read_subblocks_reverse = True  # Set flag to read subblocks in reverse order
             return MATXSMatrixSubBlock.consume_container(
                 card_container, matxs_file, material, submaterial, matrix_block, matrix_control
             )
@@ -833,6 +829,8 @@ class MATXSFile:
     file_data: Optional[MATXSFileData] = None
     particles: list[MATXSParticle] = field(default_factory=list)
     materials: list[MATXSMaterial] = field(default_factory=list)
+
+    messages: list[str] = field(default_factory=list)
 
     @classmethod
     def consume_container(cls, card_container: CardContainer):
