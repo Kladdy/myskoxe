@@ -1,6 +1,7 @@
 import re
 from dataclasses import dataclass, field
 from enum import Enum, auto
+from pathlib import Path
 from typing import Optional
 
 import fortranformat as ff
@@ -596,6 +597,13 @@ class MATXSMatrixControl:
 
         matrix_control = cls(data)
 
+        # Check if any jband is None. This occurs due to a potential bug in how FRENDY genereates the 5d card.
+        # This has been reported to the FRENDY authors at 2025-03-08
+        if any(jband is None for jband in matrix_control.data["jband"]):
+            raise ValueError(
+                f"jband contains None values. This is likely due to a bug in how FRENDY generates the 5d card. The bug has been reported to the FRENDY authors at 2025-03-08. Change value for itype in 5d card corresponding to this card: {card}. "
+            )
+
         while card_container._cards:
             next_card_level = card_container.get_next_card_level()
 
@@ -822,5 +830,19 @@ class MATXSFile:
                 matxs_file.materials.append(MATXSMaterial.consume_container(card_container, matxs_file))
             else:
                 raise ValueError(f"The card {next_card_label} should have been consumed further down the line")
+
+        return matxs_file
+
+    @classmethod
+    def parse_file(cls, file_path: Path | str):
+        if isinstance(file_path, str):
+            file_path = Path(file_path)
+        assert file_path.exists(), f"File {file_path} does not exist"
+        assert file_path.is_file(), f"Path {file_path} is not a file"
+
+        matxs_lines = file_path.read_text().splitlines()
+
+        matxs_file_data = CardContainer(matxs_lines)
+        matxs_file = MATXSFile.consume_container(matxs_file_data)
 
         return matxs_file
