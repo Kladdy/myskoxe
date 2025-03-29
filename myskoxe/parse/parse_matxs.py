@@ -9,7 +9,7 @@ import fortranformat as ff
 LINE_LENGTH = 72
 
 """
-# File structure
+# MATXS file structure
 # 0v file identification
 # 1d file control
 # 2d set hollerith identification
@@ -55,10 +55,6 @@ class CardContainer:
         assert len(
             idx_list_too_wide_lines
         ), f"Line length exceeds {LINE_LENGTH} characters for {len(idx_list_too_wide_lines)} lines: {idx_list_too_wide_lines}"
-
-        # TODO: Remove these lines
-        # # Pad lines that are too short
-        # self.lines = [line.ljust(LINE_LENGTH) for line in self.lines]
 
         self._populate_cards()
 
@@ -185,7 +181,6 @@ class FFDataRecord:
         # Read the data
         format_str = ",".join([f"{record.count}{record.kind}" for record in records])
         parsed_card = ff.FortranRecordReader(format_str).read(data)
-        print(parsed_card[0], format_str)
 
         assert len(parsed_card) == sum(
             [
@@ -453,10 +448,6 @@ class VectorBlock:
 
         kmax = group_count_per_vector_cumsum[vector_block_idx]
 
-        print(
-            f"vector_block_idx: {vector_block_idx}, kmax: {kmax}, expecting {len(group_count_per_vector_cumsum)} vector blocks"
-        )
-
         records = [
             FFDataRecord(key="title", count=1, kind="A4", type=FFDataRecordType.SCALAR),
             FFDataRecord(key=None, count=8, kind="X", type=FFDataRecordType.EMPTY),
@@ -512,8 +503,6 @@ class MatrixSubBlock:
             jband_cumsum.append(cumulative_sum)
 
         kmax = jband_cumsum[sub_block_idx]
-
-        print(f"sub_block_idx: {sub_block_idx}, kmax: {kmax}, expecting {len(jband_cumsum)} sub-blocks")
 
         records = [
             FFDataRecord(key="title", count=1, kind="A4", type=FFDataRecordType.SCALAR),
@@ -676,7 +665,6 @@ class VectorControl:
 
         submaterial_idx = len(material.submaterials)
         n1d = material.material_control.data["n1d"][submaterial_idx]
-        print(f"n1d: {n1d}", f"submaterial_idx: {submaterial_idx}")
 
         records = [
             FFDataRecord(key="title", count=1, kind="A4", type=FFDataRecordType.SCALAR),
@@ -766,11 +754,8 @@ class Material:
             if next_card_level is None or next_card_level <= 5:
                 break
             elif next_card_level == 6 or next_card_level == 8:  # Vector block or matrix block
-                print(f"Adding submaterial {len(material.submaterials)+1}")
                 material.submaterials.append(SubMaterial.consume_container(card_container, matxs_file, material))
-                print(f"Added submaterial {len(material.submaterials)}")
             else:
-                break  # TODO: Remove break
                 raise ValueError(f"Unexpected card level {next_card_level}")
 
         return material
@@ -825,8 +810,7 @@ class MATXSFile:
             elif next_card_label == "5d":
                 matxs_file.materials.append(Material.consume_container(card_container, matxs_file))
             else:
-                break  # TODO: Remove break
-                raise ValueError(f"The card {card} should have been consumed further down the line")
+                raise ValueError(f"The card {next_card_label} should have been consumed further down the line")
 
         return matxs_file
 
