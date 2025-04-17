@@ -2,6 +2,7 @@
 # podman-compose up --build -d
 # podman-compose down && podman-compose up -d
 # podman-compose down && podman-compose up --build -d
+# podman exec -ti frendy-ubuntu /bin/bash
 version: '3'
 services:
   ubuntu:

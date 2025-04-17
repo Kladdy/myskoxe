@@ -36,4 +36,12 @@ echo 'alias frendy="$FRENDY_PATH"'
 echo "export FRENDY_PATH=$(pwd)/main/frendy.exe" >> ~/.bashrc
 echo 'alias frendy="$FRENDY_PATH"' >> ~/.bashrc
 
+echo "Until a new FRENDY version is released, one needs to manually change one line in order to fix a bug:"
+echo "In 'MGXSUtils/MatxsUtils/MatxsObject.cpp', change the following line:"
+echo "  itype_vec.push_back(static_cast<Integer>(hpart.size()));"
+echo "to:"
+echo "  itype_vec.push_back(static_cast<Integer>(htype.size()));"
+echo "The line to change is located at line 1230 of 'MatxsObject.cpp'."
+echo "Then, recompile the code using the command './compile_all.csh', as done above."
+
 echo -e "\e[32m ✓ Done!\e[0m"

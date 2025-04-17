@@ -1,5 +1,7 @@
 C***********************************************************************
 C FROM https://t2.lanl.gov/nis/codes/transx-hyper/matxs.html           -
+C NOTE: After 4D, the labels are shifted erroniously                   -
+C       (6D should be 5D, etc...)                                      -
 C               PROPOSED 09/09/77                                      -
 C                       (MODIFIED 09/80)                               -
 C                       (NOMENCLATURE CHANGED 06/88)                   -
