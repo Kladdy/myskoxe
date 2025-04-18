@@ -44,4 +44,7 @@ echo "  itype_vec.push_back(static_cast<Integer>(htype.size()));"
 echo "The line to change is located at line 1230 of 'MatxsObject.cpp'."
 echo "Then, recompile the code using the command './compile_all.csh', as done above."
 
+echo "Actually, the file 'MatxsObject.cpp' should be fetched from the mail from Kenichi Tada, 2025-04-19."
+echo "This version contains a fix for the reversed jband and ijj in the 8d card."
+
 echo -e "\e[32m ✓ Done!\e[0m"

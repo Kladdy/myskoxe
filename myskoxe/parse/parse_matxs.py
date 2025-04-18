@@ -494,7 +494,6 @@ class MATXSMatrixSubBlock:
 
         counters = []
         current_counter = 0
-        jband = jband if not matrix_block.read_subblocks_reverse else reversed(jband)
 
         for bandwidth in jband:
             if cumulative_sum + lord * bandwidth > maxw:
@@ -520,23 +519,6 @@ class MATXSMatrixSubBlock:
         ]
 
         data = FFDataRecord.read_records(card.data, records)
-
-        # Count amount of non-None values in scat and None values in scat
-        scat_none_count = sum(1 for scat in data["scat"] if scat is None)
-
-        # Check if any scat is None. This occurs due to a potential bug in how FRENDY genereates the 9d card.
-        # The bug  makes it so that the energy groups come in the reverse order. This has been reported to the
-        # FRENDY authors at 2025-03-08
-        if scat_none_count:
-            matxs_file.messages.append(
-                f"Setting read_subblocks_reverse to True for card betweween line indicies {card.start_idx} and {card.stop_idx} (found {scat_none_count} None values in scat)"
-            )
-
-            card_container._cards.insert(0, card)  # Reinsert the card to the front of the container
-            matrix_block.read_subblocks_reverse = True  # Set flag to read subblocks in reverse order
-            return MATXSMatrixSubBlock.consume_container(
-                card_container, matxs_file, material, submaterial, matrix_block, matrix_control
-            )
 
         return cls(data)
 
@@ -655,8 +637,6 @@ class MATXSMatrixBlock:
     matrix_control: Optional[MATXSMatrixControl] = None
     matrix_sub_blocks: list[MATXSMatrixSubBlock] = field(default_factory=list)
     constant_sub_block: Optional[MATXSConstantSubBlock] = None
-
-    read_subblocks_reverse: bool = False
 
     @classmethod
     def consume_container(
