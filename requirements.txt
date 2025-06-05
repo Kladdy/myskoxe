@@ -1,8 +1,8 @@
 numpy
 wheel
-tensorflow
-tensorflow-metal
 ipykernel
-seaborn
+matplotlib
 fortranformat
 jinja2
+scipy
+tqdm

@@ -63,7 +63,9 @@ class CardContainer:
 
         # Find all lines matching the pattern
         matches = [
-            (p.match(line).group().strip(), line_idx) for line_idx, line in enumerate(self.lines) if p.search(line)
+            (match.group().strip(), line_idx)
+            for line_idx, line in enumerate(self.lines)
+            if (match := p.match(line)) is not None
         ]
 
         # Add cards for each match, with the data being taken up until the next match (or end of file)
@@ -77,7 +79,10 @@ class CardContainer:
 
             data = "".join(self.lines[start_idx:stop_idx])
 
-            level = int(re.match("\d", label).group())
+            level_match = re.match(r"\d", label)
+            if not level_match:
+                raise ValueError(f"Label {label} does not start with a digit, expected a valid MATXS card label")
+            level = int(level_match.group())
 
             self._cards.append(
                 BaseCard(
@@ -113,7 +118,7 @@ class FFDataRecordType(Enum):
 
 @dataclass
 class FFDataRecord:
-    key: str
+    key: Optional[str]
     count: int
     kind: str
     type: FFDataRecordType
@@ -136,26 +141,30 @@ class FFDataRecord:
             ), f"Expected table_rows to be None for non-table record, got {self.table_rows}"
 
         # Check that kind does not start with a number
-        assert not re.match("\d", self.kind), f"Kind should not start with a number, got {self.kind}"
+        assert not re.match(r"\d", self.kind), f"Kind should not start with a number, got {self.kind}"
 
     @classmethod
     def read_records(cls, data: str, records: list["FFDataRecord"]):
         results = {}
 
-        table_record_indicies = [
+        table_record_indices = [
             record_idx for record_idx, record in enumerate(records) if record.type is FFDataRecordType.TABLE
         ]
 
         # Unless there is only one table row, expand the table records to the correct number of records
-        if len(table_record_indicies) > 1:
-            first_table_record = records[table_record_indicies[0]]
+        if len(table_record_indices) > 1:
+            first_table_record = records[table_record_indices[0]]
+
+            assert (
+                first_table_record.table_rows is not None
+            ), f"Expected table_rows to be set for table record, got {first_table_record.table_rows}"
 
             # If there are any TABLE records, assert that they are all clumped together,
             # one after the other in the list of records
-            for i in range(len(table_record_indicies) - 1):
+            for i in range(len(table_record_indices) - 1):
                 assert (
-                    table_record_indicies[i] + 1 == table_record_indicies[i + 1]
-                ), f"TABLE records should be clumped together, but were placed at {table_record_indicies}"
+                    table_record_indices[i] + 1 == table_record_indices[i + 1]
+                ), f"TABLE records should be clumped together, but were placed at {table_record_indices}"
 
             # Check that all table records have the same table_rows size
             assert all(
@@ -168,11 +177,11 @@ class FFDataRecord:
 
             new_records: list[FFDataRecord] = []
             for record_idx, record in enumerate(records):
-                if record_idx == table_record_indicies[0]:
-                    repeated_table_indices = table_record_indicies * first_table_record.table_rows
+                if record_idx == table_record_indices[0]:
+                    repeated_table_indices = table_record_indices * first_table_record.table_rows
                     for repeated_table_idx in repeated_table_indices:
                         new_records.append(records[repeated_table_idx])
-                elif record_idx in table_record_indicies:
+                elif record_idx in table_record_indices:
                     continue
                 else:
                     new_records.append(record)
@@ -283,15 +292,19 @@ class MATXSSetHollerithIdentification:
     _LEVEL = 2
 
     @classmethod
-    def consume_container(cls, card_container: CardContainer):
+    def consume_container(cls, card_container: CardContainer, matxs_file: "MATXSFile"):
         card = card_container._cards.pop(0)
+
+        assert matxs_file.file_control is not None, "File control must be set before consuming file data"
+
+        nholl = matxs_file.file_control.data["nholl"]
 
         assert card.label == cls._LABEL, f"Expected label {cls._LABEL}, got {card.label}"
         assert card.level == cls._LEVEL, f"Expected level {cls._LEVEL}, got {card.level}"
 
         records = [
             FFDataRecord(key="title", count=1, kind="A4", type=FFDataRecordType.SCALAR),
-            FFDataRecord(key="hsetid", count=9, kind="A8", type=FFDataRecordType.ARRAY),
+            FFDataRecord(key="hsetid", count=nholl, kind="A8", type=FFDataRecordType.ARRAY),
         ]
 
         data = FFDataRecord.read_records(card.data, records)
@@ -312,6 +325,8 @@ class MATXSFileData:
 
         assert card.label == cls._LABEL, f"Expected label {cls._LABEL}, got {card.label}"
         assert card.level == cls._LEVEL, f"Expected level {cls._LEVEL}, got {card.level}"
+
+        assert matxs_file.file_control is not None, "File control must be set before consuming file data"
 
         npart = matxs_file.file_control.data["npart"]
         nmat = matxs_file.file_control.data["nmat"]
@@ -349,6 +364,8 @@ class MATXSGroupStructure:
         assert card.label == cls._LABEL, f"Expected label {cls._LABEL}, got {card.label}"
         assert card.level == cls._LEVEL, f"Expected level {cls._LEVEL}, got {card.level}"
 
+        assert matxs_file.file_data is not None, "File data must be set before consuming group structure"
+
         particle_idx = len(matxs_file.particles)
         ngr = matxs_file.file_data.data["ngrp"][particle_idx]
 
@@ -378,6 +395,8 @@ class MATXSMaterialControl:
 
         assert card.label == cls._LABEL, f"Expected label {cls._LABEL}, got {card.label}"
         assert card.level == cls._LEVEL, f"Expected level {cls._LEVEL}, got {card.level}"
+
+        assert matxs_file.file_data is not None, "File data must be set before consuming file data"
 
         material_idx = len(matxs_file.materials)
         nsubm = matxs_file.file_data.data["nsubm"][material_idx]
@@ -420,6 +439,8 @@ class MATXSVectorBlock:
 
         assert card.label == cls._LABEL, f"Expected label {cls._LABEL}, got {card.label}"
         assert card.level == cls._LEVEL, f"Expected level {cls._LEVEL}, got {card.level}"
+
+        assert matxs_file.file_control is not None, "File control must be set before consuming vector block"
 
         maxw = matxs_file.file_control.data["maxw"]
         vector_block_idx = len(submaterial.vector_blocks)
@@ -480,6 +501,8 @@ class MATXSMatrixSubBlock:
 
         assert card.label == cls._LABEL, f"Expected label {cls._LABEL}, got {card.label}"
         assert card.level == cls._LEVEL, f"Expected level {cls._LEVEL}, got {card.level}"
+
+        assert matxs_file.file_control is not None, "File control must be set before consuming matrix sub block"
 
         maxw = matxs_file.file_control.data["maxw"]
         sub_block_idx = len(matrix_block.matrix_sub_blocks)
@@ -544,6 +567,10 @@ class MATXSConstantSubBlock:
         assert card.label == cls._LABEL, f"Expected label {cls._LABEL}, got {card.label}"
         assert card.level == cls._LEVEL, f"Expected level {cls._LEVEL}, got {card.level}"
 
+        assert matxs_file.file_data is not None, "File data must be set before consuming constant sub block"
+        assert matrix_block.matrix_control is not None, "Matrix control must be set before consuming constant sub block"
+        assert material.material_control is not None, "Material control must be set before consuming constant sub block"
+
         submaterial_idx = len(material.submaterials)
         data_type = material.material_control.data["itype"][submaterial_idx]
         joutp = matxs_file.file_data.data["joutp"][data_type - 1]
@@ -585,6 +612,9 @@ class MATXSMatrixControl:
         assert card.label == cls._LABEL, f"Expected label {cls._LABEL}, got {card.label}"
         assert card.level == cls._LEVEL, f"Expected level {cls._LEVEL}, got {card.level}"
 
+        assert matxs_file.file_data is not None, "File data must be set before consuming matrix control"
+        assert material.material_control is not None, "Material control must be set before consuming matrix control"
+
         submaterial_idx = len(material.submaterials)
         data_type = material.material_control.data["itype"][submaterial_idx]
         joutp = matxs_file.file_data.data["joutp"][data_type - 1]
@@ -604,7 +634,7 @@ class MATXSMatrixControl:
 
         matrix_control = cls(data)
 
-        # Check if any jband is None. This occurs due to a potential bug in how FRENDY genereates the 5d card.
+        # Check if any jband is None. This occurs due to a potential bug in how FRENDY generates the 5d card.
         # This has been reported to the FRENDY authors at 2025-03-08
         if any(jband is None for jband in matrix_control.data["jband"]):
             raise ValueError(
@@ -662,7 +692,7 @@ class MATXSMatrixBlock:
             else:
                 raise ValueError(f"Unexpected card level {next_card_level}")
 
-        return submaterial
+        return matrix_block
 
 
 @dataclass
@@ -684,6 +714,8 @@ class MATXSVectorControl:
 
         assert card.label == cls._LABEL, f"Expected label {cls._LABEL}, got {card.label}"
         assert card.level == cls._LEVEL, f"Expected level {cls._LEVEL}, got {card.level}"
+
+        assert material.material_control is not None, "Material control must be set before consuming vector control"
 
         submaterial_idx = len(material.submaterials)
         n1d = material.material_control.data["n1d"][submaterial_idx]
@@ -727,6 +759,8 @@ class MATXSSubMaterial:
 
     @classmethod
     def consume_container(cls, card_container: CardContainer, matxs_file: "MATXSFile", material: "MATXSMaterial"):
+        assert material.material_control is not None, "Material control must be set before consuming submaterial"
+
         submaterial_idx = len(material.submaterials)
         n1d = material.material_control.data["n1d"][submaterial_idx]
         n2d = material.material_control.data["n2d"][submaterial_idx]
@@ -829,7 +863,7 @@ class MATXSFile:
                 matxs_file.file_control = MATXSFileControl.consume_container(card_container)
             elif next_card_label == "2d":
                 matxs_file.set_hollerith_identification = MATXSSetHollerithIdentification.consume_container(
-                    card_container
+                    card_container, matxs_file
                 )
             elif next_card_label == "3d":
                 matxs_file.file_data = MATXSFileData.consume_container(card_container, matxs_file)
