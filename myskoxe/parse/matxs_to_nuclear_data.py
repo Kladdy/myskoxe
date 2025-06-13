@@ -8,9 +8,10 @@ from myskoxe.models.nuclear_data import (
     NuclearData,
     Particle,
     ParticleLabel,
-    Submaterial,
+    SubMaterial,
+    Vector,
 )
-from myskoxe.parse.parse_matxs import MATXSFile, MATXSMaterial
+from myskoxe.parse.parse_matxs import MATXSFile, MATXSMaterial, MATXSSubMaterial
 
 
 def parse_matxs_to_nuclear_data(matxs_file: MATXSFile) -> NuclearData:
@@ -133,15 +134,56 @@ def get_submaterials(
     matxs_file: MATXSFile, matxs_material: MATXSMaterial, temp: list[float], sigz: list[float], itype: list[int]
 ):
 
-    for matxs_submaterial, temperature, dilution_factor, data_type_index in zip(
-        matxs_material.submaterials, temp, sigz, itype, strict=True
+    for submaterial_idx, (matxs_submaterial, temperature, dilution_factor, data_type_index) in enumerate(
+        zip(matxs_material.submaterials, temp, sigz, itype, strict=True)
     ):
-        # matxs_submaterial.vector_control
 
-        # TODO: In reaction name, replace . and $ with _
+        # If matxs_submaterial.vector_control is None but we have more than 0 matxs_submaterial.vector_blocks,
+        # we should raise an exception. Vice versa as well, if matxs_submaterial.vector_control is not None but
+        # we have 0 vector_blocks.
+        if matxs_submaterial.vector_control is None and len(matxs_submaterial.vector_blocks) > 0:
+            raise ValueError(f"Submaterial with index {submaterial_idx} has vector blocks but no vector control data.")
+        if matxs_submaterial.vector_control is not None and len(matxs_submaterial.vector_blocks) == 0:
+            raise ValueError(f"Submaterial  with index {submaterial_idx} has vector control data but no vector blocks.")
 
-        yield Submaterial(
+        yield SubMaterial(
             ambient_temperature=temperature,
             dilution_factor=dilution_factor,
             data_type_index=data_type_index - 1,  # Convert to zero-based index
+            vectors=(
+                list(get_vectors(matxs_file, matxs_submaterial)) if matxs_submaterial.vector_control is not None else []
+            ),
+        )
+
+
+def get_vectors(matxs_file: MATXSFile, matxs_submaterial: MATXSSubMaterial):
+    assert matxs_submaterial.vector_control is not None, "MATXS submaterial vector control is None"
+
+    hvps: list[str] = matxs_submaterial.vector_control.data["hvps"]
+    nfg: list[int] = matxs_submaterial.vector_control.data["nfg"]
+    nlg: list[int] = matxs_submaterial.vector_control.data["nlg"]
+
+    vps_all = np.concatenate([vector_block.data["vps"] for vector_block in matxs_submaterial.vector_blocks])
+
+    assert (
+        len(hvps) == len(nfg) == len(nlg)
+    ), f"Number of vector labels {len(hvps)} does not match number of fine groups {len(nfg)} and number of large groups {len(nlg)}"
+
+    data_index = 0  # Position at which to start reading data from vps_all
+    for vector_label, first_group_index, last_group_index in zip(hvps, nfg, nlg, strict=True):
+        vector_label = vector_label.strip()
+
+        assert (
+            first_group_index <= last_group_index
+        ), f"First group index {first_group_index} must be less than or equal to last group index {last_group_index}"
+
+        number_of_data_points = last_group_index - first_group_index + 1
+        data = vps_all[data_index : data_index + number_of_data_points]
+        data_index += number_of_data_points
+
+        yield Vector(
+            label=vector_label,
+            data=data.astype(np.float64),
+            first_group_index=first_group_index - 1,  # Convert to zero-based index
+            last_group_index=last_group_index - 1,  # Convert to zero-based index
         )

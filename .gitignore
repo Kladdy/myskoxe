@@ -178,6 +178,8 @@ cython_debug/
 # --- Custom ---
 *-env
 
+plots
+
 # Frendy
 frendy_install
 frendy/install
