@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import numpy as np
+
 from myskoxe.parse.matxs_to_nuclear_data import parse_matxs_to_nuclear_data
 from myskoxe.parse.parse_matxs import MATXSFile
 
@@ -14,6 +16,9 @@ if __name__ == "__main__":
 
     nuclear_data = parse_matxs_to_nuclear_data(parsed_file)
 
+    # Print first example of matrix
+    print(nuclear_data.materials[0].submaterials[0].matrices[0].data)
+
     import os
 
     from matplotlib import pyplot as plt
@@ -21,6 +26,8 @@ if __name__ == "__main__":
     PLOT_DIR = Path("plots")
 
     os.makedirs(PLOT_DIR, exist_ok=True)
+
+    # exit()
 
     for material in nuclear_data.materials:
         print(f"Material: {material.name}, Atomic Weight Ratio: {material.atomic_weight_ratio}")
@@ -59,6 +66,42 @@ if __name__ == "__main__":
                 plt.legend()
                 plt.grid(True)
                 plt.savefig(
-                    f"{PLOT_DIR}/{material.name}_submaterial-{submaterial_idx}_{incident_particle.label.name}_{vector.label}_cross_section.png"
+                    f"{PLOT_DIR}/cross_section_{material.name}_submaterial-{submaterial_idx}_{incident_particle.label.name}_{vector.label}.png"
                 )
                 plt.close()
+
+            for matrix in submaterial.matrices:
+                plt.spy(matrix.data, markersize=1)
+                plt.title("Sparsity pattern of the matrix")
+                plt.xlabel("Incoming Energy Group Index")
+                plt.ylabel("Outgoing Energy Group Index")
+
+                plt.savefig(
+                    f"{PLOT_DIR}/sparsity_pattern_{material.name}_submaterial-{submaterial_idx}_{matrix.label}.png"
+                )
+                plt.close()
+
+                # if submaterial_idx == 0 and matrix.label == "nftot":
+                #     # Example of how to access the data
+                #     print(f"Matrix {matrix.label} data:\n{matrix.data.toarray()}")
+
+            # total_dense_bytes = 0
+            # total_sparse_bytes = 0
+
+            # for matrix in submaterial.matrices:
+            #     sparse = matrix.data
+
+            #     # Dense size: all entries (rows × cols) × size of float64 (8 bytes)
+            #     dense_size = sparse.shape[0] * sparse.shape[1] * np.dtype(np.float64).itemsize
+            #     total_dense_bytes += dense_size
+
+            #     # Sparse size: size of data + indices + indptr
+            #     sparse_size = sparse.data.nbytes + sparse.indices.nbytes + sparse.indptr.nbytes
+            #     total_sparse_bytes += sparse_size
+
+            # # Calculate savings
+            # savings = 100 * (total_dense_bytes - total_sparse_bytes) / total_dense_bytes
+            # print(f"Total memory savings: {savings:.2f}%")
+
+            #     break  # TODO: Remove
+            # break  # TODO: Remove

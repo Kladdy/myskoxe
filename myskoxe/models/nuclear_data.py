@@ -3,11 +3,7 @@ from enum import StrEnum, auto
 
 import numpy as np
 from numpy.typing import NDArray
-
-
-@dataclass
-class MyData:
-    data: NDArray[np.float64]
+from scipy.sparse import csr_array
 
 
 class ParticleLabel(StrEnum):
@@ -72,11 +68,19 @@ class Vector:
 
 
 @dataclass
+class Matrix:
+    label: str
+    data: csr_array
+    order: int
+
+
+@dataclass
 class SubMaterial:
     ambient_temperature: float
     dilution_factor: float
     data_type_index: int
     vectors: list[Vector]
+    matrices: list[Matrix]
 
 
 @dataclass
